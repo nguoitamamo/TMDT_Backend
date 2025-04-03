@@ -83,6 +83,7 @@ class UserSerializer(serializers.ModelSerializer):
             print(role)
 
         avatar = validated_data.pop('avatar', None)
+        print(type(avatar))
 
         if avatar:
             uploaded_avatar = cloudinary.uploader.upload(avatar)
@@ -181,7 +182,7 @@ class TopSupplierSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = Supplier
-        fields = ['id', 'user', 'TotalRating' , 'CompanyName']
+        fields = ['id', 'user', 'TotalRating' , 'CompanyName', 'Description']
 
     def get_user(self, obj):
         return {

@@ -1,5 +1,6 @@
 from pickle import FALSE
 
+from MySQLdb.constants.FIELD_TYPE import DECIMAL
 from django.contrib.auth import authenticate
 from django.core.serializers import serialize
 from django.http import HttpResponse
@@ -16,7 +17,7 @@ from .serializers import (
     SupplierSerializer, CommentSerializer, OrderDetailSerializer, TopSupplierSerializer,
     CustomerSerializer, OrderSerializer, BasicCustomerSerializer, CommentImageSerializer)
 import cloudinary.uploader
-from .perms import OwnerPerms, IsUserSelf
+from .perms import OwnerPerms, EmployeePermission
 from .paginators import ProductPaginator, CommentPaginator
 from django.db.models.functions import TruncMonth, TruncQuarter, TruncYear
 from django.db.models import Sum, Count, F, Q
@@ -173,13 +174,23 @@ class ProductViewSet(viewsets.ModelViewSet):
 
         return Response(ProductSerializer(products, many=True).data, status=status.HTTP_200_OK)
 
-
+    # @action(methods=['post'], detail=True, url_path='add_comment')
+    # def add_comment(self, request, pk=None):
+    #     user = self.get_object()
+    #     if user is None:
+    #         return Response({"error": "user khong ton tai!"}, status=status.HTTP_404_NOT_FOUND)
+    #     itemEdcomment = self.request.query_params.get
+    #     comment_id = self.request.query_params.get('comment_id', None)
 
 
 class UserViewSet(viewsets.ModelViewSet):
     queryset = User.objects.filter(is_active=True)
     serializer_class = UserSerializer
     parser_classes = [parsers.MultiPartParser, ]
+
+
+
+
 
     def get_permissions(self):
         if self.request.method in ['PUT', 'PATCH', 'POST'] and self.action in ['add_store', 'get_rate' ,'logout_user']:
@@ -266,12 +277,12 @@ class UserViewSet(viewsets.ModelViewSet):
             return Response({"imageCloud": avatar}, status.HTTP_200_OK)
         return Response({"error": "khong the tai anh!"}, status.HTTP_400_BAD_REQUEST)
 
-    @action(methods=['post'], url_path='add_store/(?P<category_id>[^/.]+)', detail=True,
-            permission_classes=[permissions.IsAuthenticated])
-    def add_store(self, request, pk=None, category_id=None):
+    @action(methods=['post'], url_path='add_store', detail=True)
+    def add_store(self, request, pk=None):
         try:
 
             supplier = Supplier.objects.get(Supplier_id=pk)
+            category_id = self.request.query_params.get('category_id', None)
             category = Category.objects.get(CategoryID=category_id)
         except Supplier.DoesNotExist:
             return Response({"error": "Supplier không tồn tại"}, status=status.HTTP_400_BAD_REQUEST)
@@ -280,6 +291,7 @@ class UserViewSet(viewsets.ModelViewSet):
 
         product_name = request.data.get('ProductName')
         number_input = int(request.data.get('NumberInStore', 0))
+        price = float(request.data.get('UnitPrice')) / 1_000_000
         serializer = ProductSerializer(data=request.data)
 
         existing_product = Product.objects.filter(ProductName=product_name, Supplier_id=pk,
@@ -287,21 +299,22 @@ class UserViewSet(viewsets.ModelViewSet):
 
         if existing_product:
             existing_product.NumberInStore += number_input
+            existing_product.UnitPrice = price
             existing_product.save()
             product = existing_product
         else:
             if serializer.is_valid():
-                product = serializer.save(Category=category, Supplier=supplier)
+                product = serializer.save(Category=category, Supplier=supplier,UnitPrice = price )
             else:
                 return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
 
         image_filenames = request.data.getlist('list_image')
+        print(image_filenames)
 
         for name_image in image_filenames:
             uploaded_avatar = cloudinary.uploader.upload(name_image)
             avatar = uploaded_avatar.get("secure_url")
-            productImage = ProductImage(product_id=product.id, image=avatar)
-            productImage.save()
+            ProductImage.objects.create(product=product, image=avatar)
 
         return Response(ProductSerializer(product).data, status=status.HTTP_201_CREATED)
 
@@ -390,9 +403,10 @@ class SupplierViewSet(viewsets.ModelViewSet):
     serializer_class = SupplierSerializer
 
     def get_permissions(self):
-        if self.request.method in ['PUT', 'PATCH'] or self.action in ['xacnhan_dk_banhang', 'get_rate']:
+        if self.request.method in ['PUT', 'PATCH' ,'GET'] and self.action in [ 'get_store_not_active', 'thongke']:
             return [OwnerPerms()]
-
+        # elif self.action in ['xacnhan_dk_banhang'] and self.request.method in ['PATCH']:
+        #     return [EmployeePermission()]
         return [permissions.AllowAny()]
 
     @action(methods=['patch'], detail=True, url_path='xacnhan_dk_banhang')
@@ -412,16 +426,20 @@ class SupplierViewSet(viewsets.ModelViewSet):
         user.groups.add(group)
         user.save()
 
-        return Response({"status": supplier.Active_Store}, status=status.HTTP_400_BAD_REQUEST)
+        return Response({"status": supplier.Active_Store}, status=status.HTTP_200_OK)
 
-    @action(methods=['patch'], detail=True, url_path='add_rate')
-    def get_rate(self, request, pk=None):
+    @action(methods=['patch'], detail= True, url_path='add_rate' )
+    def get_rate(self, request):
         number_rate = float(request.query_params.get("number_rate"))
 
         if not number_rate:
             return Response({"error": "Number_rate !!!"}, status=400)
 
-        supplier = self.get_object()
+        if request.user.is_authenticated and hasattr(request.user, 'supplier'):
+            supplier = request.user.supplier
+        else:
+            supplier = None
+        print(supplier)
         if not supplier:
             return Response({"message": "Không có nhà cung cấp nào"}, status=404)
 
@@ -435,7 +453,6 @@ class SupplierViewSet(viewsets.ModelViewSet):
 
     @action(methods=['get'], detail=True, url_path='info_short' )
     def get_supplier(self,request, pk = None):
-        print("đã và đây")
         return Response(TopSupplierSerializer(self.get_object()).data, status=status.HTTP_200_OK)
 
     @action(methods=['get'], detail=False, url_path='top')
@@ -443,6 +460,35 @@ class SupplierViewSet(viewsets.ModelViewSet):
         suppliers = Supplier.objects.filter(TotalRating__gt=4.0).order_by('-TotalRating')[:3]
 
         return Response(TopSupplierSerializer(suppliers, many=True).data, status=status.HTTP_200_OK)
+
+
+    # @action(methods=['get'], detail=True)
+    # def sanphamdangban(self, request, pk= None):
+    #     try:
+    #         supplier = self.get_object()
+    #         categories = Category.objects.filter(product__Supplier=supplier).distinct()
+    #
+    #         data = []
+    #         for category in categories:
+    #             products = Product.objects.filter(Supplier=supplier, Category=category)
+    #
+    #             product_list = []
+    #             for product in products:
+    #
+    #                 product_list.append( ProductSerializer(product).data)
+    #
+    #             data.append({
+    #                 "CategoryID": category.CategoryID,
+    #                 "CategoryName": category.CategoryName,
+    #                 "TotalProducts": products.count(),
+    #                 "Products": product_list
+    #             })
+    #
+    #         return Response(
+    #             { "Results" : data})
+    #
+    #     except Supplier.DoesNotExist:
+    #         return Response({"error": "Supplier not found"}, status=404)
 
 
     @action(methods=['get'], detail=True, url_path='thongke')
@@ -453,11 +499,36 @@ class SupplierViewSet(viewsets.ModelViewSet):
         year = request.query_params.get('year', None)
         quarter = request.query_params.get('quarter', None)
 
+
+
         if  pk and filter_type:
             try:
                 supplier = self.get_object()
             except Supplier.DoesNotExist:
                 return Response({"error": "khon tìm thấy Supplier!"}, status=status.HTTP_404_NOT_FOUND)
+
+            if filter_type == "sanphamdangban":
+                categories = Category.objects.filter(product__Supplier=supplier).distinct()
+
+                results = []
+                for category in categories:
+                    products = Product.objects.filter(Supplier=supplier, Category=category)
+
+                    product_list = []
+                    for product in products:
+                        product_list.append(ProductSerializer(product).data)
+
+                    results.append({
+                        "CategoryID": category.CategoryID,
+                        "CategoryName": category.CategoryName,
+                        "TotalProducts": products.count(),
+                        "Products": product_list
+                    })
+                return Response({
+                    "Supplier": supplier.CompanyName,
+                    "Results": results
+                })
+
 
             now = timezone.now()
 
@@ -469,34 +540,47 @@ class SupplierViewSet(viewsets.ModelViewSet):
                     Order__NgayTao__year=now.year,
                     Order__NgayTao__month=month
                 ).annotate(time=TruncMonth('Order__NgayTao')).values(
-                    'time', 'Product__ProductName'
+                    'time', 'Product__ProductName', 'Product__Category__CategoryName', 'Order_id'
                 ).annotate(
                     total_products=Sum('Quantity'),
-                    total_money = Sum(F('Quantity') * F('UnitPrice') * (1 - F('Discount'))) ,
+                    total_money=Sum(
+                        F('Quantity') * (F('UnitPrice')) * (1 - F('Discount'))
+                    ) * 1_000_000,
                     total_order =Count('OrderDetailID')
 
                 )
 
             elif filter_type == "quarter":
+
                 dic = {
-                    "1" : ["1" ,"3"],
-                    "2" : [ "4", "6"],
-                    "3" : ["7", "9"],
-                    "4" : ["10", "12"]
+                    "1" : [1 ,3],
+                    "2" : [ 4, 6],
+                    "3" : [7, 9],
+                    "4" : [10, 12]
                 }
-                quarter = quarter = dic.get(quarter, None)
+                if quarter is None:
+                    for i in dic:
+                        if  now.month in dic[i]:
+                            quarter = i
+                            break
+
+                if quarter:
+                    quarter =  dic.get(quarter, None)
                 results = OrderDetail.objects.filter(
                     Product__Supplier=supplier,
                     Order__NgayTao__year=now.year,
                     Order__NgayTao__month__range = quarter
 
                 ).annotate(time=TruncQuarter('Order__NgayTao')).values(
-                    'time'
+                    'time', 'Product__Category__CategoryName', 'Product__ProductName', 'Order_id'
                 ).annotate(
                     total_products=Sum('Quantity'),
-                    total_money=Sum(F('Quantity') * F('UnitPrice') * (1 - F('Discount'))),
+                    total_money=Sum(
+                        F('Quantity') * (F('UnitPrice')) * (1 - F('Discount'))
+                    ) * 1_000_000,
                     total_order=Count('OrderDetailID')
                 )
+
 
             elif filter_type == "year":
                 year = now.year if year is None else year
@@ -504,34 +588,35 @@ class SupplierViewSet(viewsets.ModelViewSet):
                     Product__Supplier=supplier,
                     Order__NgayTao__year=year
                 ).annotate(time=TruncYear('Order__NgayTao')).values(
-                    'time', 'Product__ProductName'
+                    'time', 'Product__ProductName', 'Product__Category__CategoryName', 'Order_id'
                 ).annotate(
                     total_products=Sum('Quantity'),
-                    total_money=Sum(F('Quantity') * F('UnitPrice') * (1 - F('Discount'))),
+                    total_money=Sum(
+                        F('Quantity') * (F('UnitPrice')) * (1 - F('Discount'))
+                    ) * 1_000_000,
                     total_order=Count('OrderDetailID')
                 )
 
-
             return Response({
                 "Supplier": supplier.CompanyName,
-                "Results": results
+                "Results": results,
+                "total": sum(result['total_money'] for result in results if result['total_money'] is not None)
+
             })
 
 
     @action(methods=['get'], detail=False, url_path='get_store_not_active')
     def get_store_not_active(self, request):
         supplier = Supplier.objects.filter(Active_Store=False)
-        return Response({"ds_suppliers": SupplierSerializer(supplier, many=True).data, }, status=status.HTTP_200_OK)
+        return Response(TopSupplierSerializer(supplier, many=True).data, status=status.HTTP_200_OK)
 
     @action(methods=['get'], detail=True, url_path='get_category')
     def get_category_supplier(self, request, pk=None):
-        supplier = Supplier.objects.filter(Supplier_id=pk).first()
+        supplier = self.get_object()
         if not supplier:
             return Response({"error": "Không tìm thấy supplier!"}, status=status.HTTP_400_BAD_REQUEST)
 
-        categories = supplier.categorys.all()
+        categories = supplier.categorys
 
-        category_data = [{"id": c.id, "name": c.name} for c in categories]
-
-        return Response({"supplier": SupplierSerializer(supplier).data, "categories": category_data},
+        return Response(  CategorySerializer(categories, many=True).data,
                         status=status.HTTP_200_OK)

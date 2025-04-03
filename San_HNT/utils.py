@@ -1,6 +1,7 @@
 import os
 from twilio.rest import Client
 from dotenv import load_dotenv
+from unicodedata import decimal
 
 # Load thông tin từ .env
 load_dotenv()
@@ -33,9 +34,6 @@ from django.contrib.auth.models import  (
     AbstractUser, Permission, Group
 )
 
-
-if __name__ == '__main__':
-    group = Group.objects.get(name="Nhân viên")  # Tên nhóm cụ thể
-    permissions = group.permissions.all()
-    for perm in permissions:
-        print(perm.codename)
+#
+# if __name__ == '__main__':
+#     print(type((2.605) * 2.0))

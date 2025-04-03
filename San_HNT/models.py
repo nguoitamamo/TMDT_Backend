@@ -140,7 +140,7 @@ class Product(BaseModel):
 
     Category = models.ForeignKey('Category', on_delete=models.CASCADE)
     Supplier = models.ForeignKey('Supplier', on_delete=models.CASCADE )
-    UnitPrice = models.FloatField(default=0.0)
+    UnitPrice = models.FloatField( default=0.0)
     Description = models.TextField(null = True, blank=True)
 
     NumberInStore = models.IntegerField(default=1)
