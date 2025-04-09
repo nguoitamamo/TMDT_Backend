@@ -1,21 +1,21 @@
-from pickle import FALSE
 
-from MySQLdb.constants.FIELD_TYPE import DECIMAL
 from django.contrib.auth import authenticate
-from django.core.serializers import serialize
 from django.http import HttpResponse
-from django.http.multipartparser import MultiPartParser
+
 from rest_framework.response import Response
 from rest_framework import viewsets, permissions, generics, parsers, status
 from San_HNT.models import (Product, User, Permission, Category,
                             Supplier, ProductImage, Comment, OrderDetail,
-                            StateOrder, Customer, Order, CommentImage)
+                            StateOrder, Customer, Order, CommentImage, StateOrder)
 from rest_framework.decorators import action, permission_classes
 from django.contrib.auth.models import Group
+from rest_framework.utils.mediatypes import order_by_precedence
+
 from .serializers import (
     ProductSerializer, UserSerializer, PermissionSerializer, CategorySerializer,
-    SupplierSerializer, CommentSerializer, OrderDetailSerializer, TopSupplierSerializer,
-    CustomerSerializer, OrderSerializer, BasicCustomerSerializer, CommentImageSerializer)
+    SupplierSerializer, CommentSerializer, OrderDetailSerializer, BaseSupplierSerializer,
+    CustomerSerializer, OrderSerializer, BasicCustomerSerializer, CommentImageSerializer,
+    StateOrderSerializer)
 import cloudinary.uploader
 from .perms import OwnerPerms, EmployeePermission
 from .paginators import ProductPaginator, CommentPaginator
@@ -23,6 +23,9 @@ from django.db.models.functions import TruncMonth, TruncQuarter, TruncYear
 from django.db.models import Sum, Count, F, Q
 from django.utils import timezone
 from oauth2_provider.models import AccessToken
+from rest_framework import viewsets
+from django.db.models import Prefetch
+from rest_framework.parsers import JSONParser
 
 
 def index(request):
@@ -30,6 +33,15 @@ def index(request):
         "heelo huynh ngoc truong"
     )
 
+
+class StateOrderViewSet(viewsets.ViewSet):
+    def list(self, request):
+        state_orders = [
+            {"CategoryName": "Tất cả", "CategoryID": "TatCa"},
+        ]
+
+        state_orders.extend(StateOrderSerializer.get_state_orders())
+        return Response(state_orders)
 
 
 class OrderDetailViewSet(viewsets.ModelViewSet):
@@ -111,34 +123,30 @@ class ProductViewSet(viewsets.ModelViewSet):
 
     def get_queryset(self):
         query = self.queryset
-
-        name = self.request.query_params.get('name')
+        print(self.request.query_params)
+        name = self.request.query_params.get('name', None)
 
         if name:
-            query = query.filter(ProductName__icontains=name)
+            query = query.filter(
+                Q(ProductName__icontains=name) |
+                Q(Category__CategoryName__icontains=name)
+            )
 
-        min_price = self.request.query_params.get('min_price')
-        max_price = self.request.query_params.get('max_price')
-
-        print(min_price, type(min_price))
-        print(max_price, type(max_price))
-        print(float(min_price))
-        print(float(max_price))
-
-        print(float('1.9'))
+        min_price = self.request.query_params.get('min_price', None)
+        max_price = self.request.query_params.get('max_price', None)
 
         if min_price:
             query = query.filter(UnitPrice__gte=float(min_price))
         if max_price:
             query = query.filter(UnitPrice__lte=float(max_price))
 
-        company_name = self.request.query_params.get('company_name')
+        company_name = self.request.query_params.get('company_name', None)
+        if company_name:
+            supplier_ids = Supplier.objects.filter(CompanyName__icontains=company_name, Active_Store=True).values_list(
+                "Supplier", flat=True)
 
-        supplier_ids = Supplier.objects.filter(CompanyName__icontains=company_name, Active_Store=True).values_list(
-            "Supplier", flat=True)
-
-        if supplier_ids:
-            query = query.filter(Supplier__in=supplier_ids)
+            if supplier_ids:
+                query = query.filter(Supplier__in=supplier_ids)
 
         sort = self.request.query_params.get('sort')
         if sort == 'name':
@@ -168,27 +176,15 @@ class ProductViewSet(viewsets.ModelViewSet):
 
         products = Product.objects.filter(Supplier__in=top_suppliers).order_by('-NumberBuyed')[:3]
 
-        for x in products:
-            print([img.image.url for img in x.productimage_set.all()])
-
 
         return Response(ProductSerializer(products, many=True).data, status=status.HTTP_200_OK)
 
-    # @action(methods=['post'], detail=True, url_path='add_comment')
-    # def add_comment(self, request, pk=None):
-    #     user = self.get_object()
-    #     if user is None:
-    #         return Response({"error": "user khong ton tai!"}, status=status.HTTP_404_NOT_FOUND)
-    #     itemEdcomment = self.request.query_params.get
-    #     comment_id = self.request.query_params.get('comment_id', None)
 
 
 class UserViewSet(viewsets.ModelViewSet):
     queryset = User.objects.filter(is_active=True)
     serializer_class = UserSerializer
     parser_classes = [parsers.MultiPartParser, ]
-
-
 
 
 
@@ -225,12 +221,10 @@ class UserViewSet(viewsets.ModelViewSet):
     @action(methods=['post'], detail= False, url_path='logout')
     def logout_user(self,request):
         token = request.data.get("token")
-        print(token)
-        # Lấy token từ request
         if token:
             try:
                 access_token = AccessToken.objects.get(token=token)
-                access_token.delete()  # Xóa token khỏi database
+                access_token.delete()
                 return Response({"message": "Đăng xuất thành công"}, status=status.HTTP_200_OK)
             except AccessToken.DoesNotExist:
                 return Response({"error": "Token không hợp lệ"}, status=status.HTTP_400_BAD_REQUEST)
@@ -319,10 +313,37 @@ class UserViewSet(viewsets.ModelViewSet):
         return Response(ProductSerializer(product).data, status=status.HTTP_201_CREATED)
 
 
+    @action(methods=['get'], detail=True, url_path='donhang')
+    def get_donhang(self, request, pk=None):
+        filter = self.request.query_params.get('filter', None)
+
+        try:
+            user = self.get_object()
+            orders = Order.objects.filter(Customer = user.customer)
+
+            if filter != "TatCa":
+                orders = orders.filter(StateOrder= filter)
+
+            orders = orders.prefetch_related('orderdetail_set__Product')
+
+            serializer = OrderSerializer(orders, many=True)
+            return Response(serializer.data)
+
+
+        except Customer.DoesNotExist:
+            return Response({"error": "Không tìm thấy khách hàng"}, status=status.HTTP_404_NOT_FOUND)
+
+
+
+
+
 
 class OrderViewSet(viewsets.ModelViewSet):
     queryset = Order.objects.all()
     serializer_class = OrderSerializer
+    parser_classes = [JSONParser]
+
+
 
 
 
@@ -332,7 +353,86 @@ class CustomerViewSet(viewsets.ModelViewSet):
     queryset = Customer.objects.all()
     serializer_class = CustomerSerializer
 
+    def get_permissions(self):
+        if self.request.method in ['GET', 'POST'] and self.action in ['get_donhang', 'add_giohang', 'get_giohang', 'add_commnet']:
+            return [OwnerPerms()]
 
+        return [permissions.AllowAny()]
+
+    @action(methods=['get'], detail=True, url_path="getgiohang")
+    def get_giohang(self, request, pk=None):
+        try:
+            customer = self.get_object()
+
+            order = Order.objects.filter( Customer = customer, StateOrder= StateOrder.GIOHANG.label )
+
+
+            return Response( OrderSerializer( order, many= True).data, status = status.HTTP_200_OK)
+
+
+        except Customer.DoesNotExist:
+            return Response({"error": "Không tìm thấy khách hàng"}, status=status.HTTP_404_NOT_FOUND)
+
+
+    @action(methods=['post'], detail=True, url_path="addgiohang")
+    def add_giohang(self, request, pk=None):
+        try:
+            customer = self.get_object()
+
+            product_data = request.data
+
+            price = product_data['UnitPrice'].replace(' VND', '')
+
+            price = price.replace(',', '')
+
+            print(price)
+            price = float(price) / 1_000_000
+
+            product = Product(
+                ProductID=product_data['ProductID'],
+                ProductName=product_data['ProductName'],
+                UnitPrice=price,
+                Description=product_data['Description'],
+                NumberInStore=product_data['NumberInStore'],
+                NumberBuyed=product_data['NumberBuyed'],
+                Category_id=product_data['Category_id'],
+                Supplier_id=product_data['Supplier_id'],
+            )
+
+            order = Order.objects.create(Customer=customer, StateOrder=StateOrder.GIOHANG.label)
+
+            OrderDetail.objects.create( UnitPrice = price ,Order=order, Product=product)
+            return Response(OrderSerializer(order).data, status=status.HTTP_200_OK)
+
+        except Customer.DoesNotExist:
+            return Response({"error": "Không tìm thấy khách hàng"}, status=status.HTTP_404_NOT_FOUND)
+
+
+    @action(methods=['post'], detail=True, url_path="removegiohang")
+    def remove_giohang(self, request, pk = None):
+
+        try:
+            customer = self.get_object()
+
+            order_id= self.request.query_params.get('order_id', None)
+
+            orders = Order.objects.filter(Customer=customer).first()
+
+            if order_id:
+                orders = Order.objects.filter(Customer = customer, OrderID = order_id)
+
+            if orders.count() > 0:
+                for order in orders:
+                    order_details = OrderDetail.objects.filter(Order=order)
+                    order_details.delete()
+
+                orders.delete()
+
+            return Response({"status": True}, status=status.HTTP_200_OK)
+
+
+        except Customer.DoesNotExist:
+            return Response({"error": "Không tìm thấy khách hàng"}, status=status.HTTP_404_NOT_FOUND)
 
 
 
@@ -343,8 +443,9 @@ class CustomerViewSet(viewsets.ModelViewSet):
 
 
         bought_products = Product.objects.filter(
-            orderdetail__Order__Customer__Customer=customer
+            order_details__Order__Customer__Customer=customer
         )
+
 
         category_ids = bought_products.values_list("Category_id", flat=True).distinct()
         supplier_ids = bought_products.values_list("Supplier_id", flat=True).distinct()
@@ -356,6 +457,31 @@ class CustomerViewSet(viewsets.ModelViewSet):
         serializer = ProductSerializer(related_products, many=True)
         return Response(serializer.data, status=status.HTTP_200_OK)
 
+    @action(methods=['post'], detail=True, url_path='add_comment')
+    def add_commnet(self, request, pk= None):
+        customer = self.get_object()
+
+        IDEdComment = request.data.get('IDEdComment')
+        content = request.data.get('content')
+        CommentID = request.data.get('CommentID')
+
+        comment = Comment.objects.create(
+            Customer=customer,
+            IDEdComment=IDEdComment,
+            Content=content,
+            Reply_id=CommentID if CommentID else None
+        )
+
+        image_filenames = request.data.getlist('list_image')
+
+
+        for name_image in image_filenames:
+            uploaded_avatar = cloudinary.uploader.upload(name_image)
+            avatar = uploaded_avatar.get("secure_url")
+            CommentImage.objects.create(comment = comment, image = avatar)
+
+
+        return Response(CommentSerializer(comment).data, status = status.HTTP_200_OK)
 
 
 
@@ -400,7 +526,8 @@ class CategoryViewSet(viewsets.ModelViewSet, generics.CreateAPIView):
 
 class SupplierViewSet(viewsets.ModelViewSet):
     queryset = Supplier.objects.all()
-    serializer_class = SupplierSerializer
+    serializer_class = BaseSupplierSerializer
+
 
     def get_permissions(self):
         if self.request.method in ['PUT', 'PATCH' ,'GET'] and self.action in [ 'get_store_not_active', 'thongke']:
@@ -422,7 +549,7 @@ class SupplierViewSet(viewsets.ModelViewSet):
         user = supplier.Supplier
 
         group = Group.objects.get(name='Người bán')
-
+        Customer.objects.create(Customer_id = user.id)
         user.groups.add(group)
         user.save()
 
@@ -453,13 +580,13 @@ class SupplierViewSet(viewsets.ModelViewSet):
 
     @action(methods=['get'], detail=True, url_path='info_short' )
     def get_supplier(self,request, pk = None):
-        return Response(TopSupplierSerializer(self.get_object()).data, status=status.HTTP_200_OK)
+        return Response(BaseSupplierSerializer(self.get_object()).data, status=status.HTTP_200_OK)
 
     @action(methods=['get'], detail=False, url_path='top')
     def get_top_supplier(self, request):
         suppliers = Supplier.objects.filter(TotalRating__gt=4.0).order_by('-TotalRating')[:3]
 
-        return Response(TopSupplierSerializer(suppliers, many=True).data, status=status.HTTP_200_OK)
+        return Response(BaseSupplierSerializer(suppliers, many=True).data, status=status.HTTP_200_OK)
 
 
     # @action(methods=['get'], detail=True)
@@ -550,6 +677,8 @@ class SupplierViewSet(viewsets.ModelViewSet):
 
                 )
 
+                print(results.query)
+
             elif filter_type == "quarter":
 
                 dic = {
@@ -608,7 +737,7 @@ class SupplierViewSet(viewsets.ModelViewSet):
     @action(methods=['get'], detail=False, url_path='get_store_not_active')
     def get_store_not_active(self, request):
         supplier = Supplier.objects.filter(Active_Store=False)
-        return Response(TopSupplierSerializer(supplier, many=True).data, status=status.HTTP_200_OK)
+        return Response(BaseSupplierSerializer(supplier, many=True).data, status=status.HTTP_200_OK)
 
     @action(methods=['get'], detail=True, url_path='get_category')
     def get_category_supplier(self, request, pk=None):

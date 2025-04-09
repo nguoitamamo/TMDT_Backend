@@ -6,7 +6,8 @@ from rest_framework.permissions import BasePermission
 
 class OwnerPerms(permissions.IsAuthenticated):
     def has_object_permission(self, request, view, obj):
-        print(f"User: {type(request.user)} ")
+        print(f"User: {(request.user.id)} ")
+        print(int(view.kwargs.get('pk')))
         return super().has_object_permission(request, view, obj) and request.user.id == int(view.kwargs.get('pk'))
 
 

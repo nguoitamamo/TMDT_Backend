@@ -55,7 +55,7 @@ MIDDLEWARE = [
 ]
 CORS_ALLOW_ALL_ORIGINS = True
 
-ALLOWED_HOSTS = ['192.168.1.154', '192.168.1.1', '192.168.196.1', '127.0.0.1', '0.0.0.0']
+ALLOWED_HOSTS = ['192.168.1.154', '192.168.1.1', '192.168.196.1', '127.0.0.1', '10.17.39.150']
 
 MIDDLEWARE = [
     'django.middleware.security.SecurityMiddleware',

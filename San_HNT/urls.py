@@ -15,7 +15,8 @@ r.register('categorys', views.CategoryViewSet)
 r.register('suppliers', views.SupplierViewSet)
 r.register('comments', views.CommentViewSet)
 r.register('customers', views.CustomerViewSet)
-r.register('ordes', views.OrderViewSet)
+r.register('orders', views.OrderViewSet)
+r.register(r'state-orders', views.StateOrderViewSet, basename='state-orders')
 
 
 

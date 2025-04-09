@@ -35,5 +35,7 @@ from django.contrib.auth.models import  (
 )
 
 #
-# if __name__ == '__main__':
-#     print(type((2.605) * 2.0))
+if __name__ == '__main__':
+    price = "2,000,000 VND".replace(' VND', '')
+    price = float(price.replace(',', '')) / 1_000_000
+    print(price)

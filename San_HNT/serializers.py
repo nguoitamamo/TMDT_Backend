@@ -4,33 +4,24 @@ import cloudinary.uploader
 
 from rest_framework import serializers
 from San_HNT.models import (Product , User, Role,  Permission, Category ,Product,
-                            Supplier, Comment, OrderDetail, Customer, Order, CommentImage)
+                            Supplier, Comment, OrderDetail, Customer, Order, CommentImage, StateOrder, ProductImage)
 from django.contrib.auth.models import Group
 
 
 
 
-
-
-
-
-
-
-class OrderSerializer(serializers.ModelSerializer):
+class ProductImageSerializer(serializers.ModelSerializer):
     class Meta:
-        model = Order
-        fields = ['OrderID', 'Customer', 'TypePay', 'StateOrder' ]
+        model = ProductImage
+        fields = ['image']
 
+class StateOrderSerializer(serializers.Serializer):
+    value = serializers.CharField()
+    label = serializers.CharField()
 
-
-class OrderDetailSerializer(serializers.ModelSerializer):
-    class Meta:
-        model = OrderDetail
-        fields = ['OrderDetailID', 'Quantity','UnitPrice','Discount','Order', 'Product']
-
-
-
-
+    @classmethod
+    def get_state_orders(cls):
+            return [{"CategoryName": choice.value, "CategoryID": choice.label} for choice in StateOrder]
 
 
 class CommentSerializer(serializers.ModelSerializer):
@@ -59,9 +50,27 @@ class ProductSerializer(serializers.ModelSerializer):
 
 
 
+class OrderDetailSerializer(serializers.ModelSerializer):
+    product = ProductSerializer(read_only=True, source='Product')
+    class Meta:
+        model = OrderDetail
+        fields = ['OrderDetailID', 'Quantity','UnitPrice','Discount','Order', 'product']
 
 
+class OrderSerializer(serializers.ModelSerializer):
+    order_details = OrderDetailSerializer(many=True, source='orderdetail_set')
 
+    created_date = serializers.SerializerMethodField()
+
+    def get_created_date(self, obj):
+        return obj.NgayTao.strftime("%d/%m/%Y")
+
+    class Meta:
+        model = Order
+        fields = [
+            'OrderID', 'Customer', 'TypePay', 'StateOrder',
+            'order_details', 'NgayTao', 'created_date',
+        ]
 
 
 
@@ -176,7 +185,7 @@ class BasicCustomerSerializer(serializers.ModelSerializer):
         } if obj.Customer else None
 
 
-class TopSupplierSerializer(serializers.ModelSerializer):
+class BaseSupplierSerializer(serializers.ModelSerializer):
     id = serializers.IntegerField(source='Supplier_id')
     user = serializers.SerializerMethodField()
 

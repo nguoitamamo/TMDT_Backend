@@ -17,31 +17,19 @@ class TypePay(models.TextChoices):
 
 
 class StateOrder(models.TextChoices):
-    WAITXACNHAN = "choxacnhan" , "ChoXacNhan"
-    XACNHAN = "xacnhan" , "XacNhan"
-    CHOGIAOHANG = "chogiaohang" , "ChoGiaoHang"
-    HUY = "huy" , "Huy"
-    DAHUY = "dahuy" , "DaHuy"
-    DAGIAO = "dagiao" , "DaGiao"
-
-# class CloudinaryField(BaseCloudinaryField):
-#     def upload_options(self, model_instance):
-#         return {
-#             'public_id': model_instance.name,
-#             'unique_filename': False,
-#             'overwrite': True,
-#             'resource_type': 'image',
-#             'tags': ['map', 'market-map'],
-#             'invalidate': True,
-#             'quality': 'auto:eco',
-#         }
-
+    WAITXACNHAN = "Chờ xác nhận" , "ChoXacNhan"
+    XACNHAN = "Đã xác nhận" , "XacNhan"
+    CHOGIAOHANG = "Chờ giao hàng" , "ChoGiaoHang"
+    HUY = "Hủy" , "Huy"
+    DAHUY = "Đã hủy" , "DaHuy"
+    DAGIAO = "Đã giao" , "DaGiao"
+    GIOHANG = "Giỏ hàng" , 'GioHang'
 
 
 class User(AbstractUser):
     avatar = CloudinaryField('avatar', null=True, blank=True)
     address= models.CharField(max_length= 200 ,default = '')
-    role = models.CharField(max_length=50, choices=Role.choices, default=Role.CUSTOMER)
+    role = models.CharField(max_length=50, choices=Role.choices, default=Role.CUSTOMER.label)
     groups = models.ManyToManyField(Group)
 
 
@@ -158,7 +146,7 @@ class Order(BaseModel):
     OrderID = models.AutoField( primary_key=True)
     Customer = models.ForeignKey('Customer', on_delete=models.PROTECT)
     TypePay = models.CharField(max_length=10, choices=TypePay.choices, default=TypePay.ONLINE)
-    StateOrder = models.CharField( max_length=20 , choices=StateOrder.choices, default=StateOrder.WAITXACNHAN)
+    StateOrder = models.CharField( max_length=20 , choices=StateOrder.choices, default=StateOrder.WAITXACNHAN.label)
 
     def __str__(self):
         return str(self.OrderID)
@@ -166,11 +154,11 @@ class Order(BaseModel):
 
 class OrderDetail(models.Model):
     OrderDetailID = models.AutoField(primary_key=True)
-    Quantity = models.IntegerField()
+    Quantity = models.IntegerField(default=1)
     UnitPrice = models.FloatField(default=0.0)
-    Discount = models.FloatField()
+    Discount = models.FloatField(default=0.0)
     Order = models.ForeignKey('Order', on_delete=models.PROTECT)
-    Product = models.ForeignKey('Product', on_delete=models.PROTECT)
+    Product = models.ForeignKey('Product', on_delete=models.PROTECT, related_name='order_details')
 
 
     def __str__(self):
