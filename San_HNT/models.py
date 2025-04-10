@@ -27,7 +27,7 @@ class StateOrder(models.TextChoices):
 
 
 class User(AbstractUser):
-    avatar = CloudinaryField('avatar', null=True, blank=True)
+    avatar = CloudinaryField('Image', null=True)
     address= models.CharField(max_length= 200 ,default = '')
     role = models.CharField(max_length=50, choices=Role.choices, default=Role.CUSTOMER.label)
     groups = models.ManyToManyField(Group)
@@ -159,6 +159,7 @@ class OrderDetail(models.Model):
     Discount = models.FloatField(default=0.0)
     Order = models.ForeignKey('Order', on_delete=models.PROTECT)
     Product = models.ForeignKey('Product', on_delete=models.PROTECT, related_name='order_details')
+    Note = models.TextField(null=True, blank=True)
 
 
     def __str__(self):
@@ -170,6 +171,7 @@ class Deals(BaseModel):
     Supplier = models.ForeignKey('Supplier', on_delete=models.CASCADE)
     DealName = models.CharField( max_length=200 )
     Discount = models.FloatField()
+    StartDate = models.DateTimeField(null= True)
     EndDate = models.DateTimeField()
     Description = models.TextField(null = True, blank=True)
     CategoryID = models.OneToOneField( 'Category' , on_delete=models.CASCADE,  null = True)

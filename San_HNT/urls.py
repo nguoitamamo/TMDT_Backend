@@ -17,6 +17,8 @@ r.register('comments', views.CommentViewSet)
 r.register('customers', views.CustomerViewSet)
 r.register('orders', views.OrderViewSet)
 r.register(r'state-orders', views.StateOrderViewSet, basename='state-orders')
+r.register(r'deals', views.DealsViewSet)
+
 
 
 

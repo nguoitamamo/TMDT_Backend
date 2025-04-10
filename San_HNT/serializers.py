@@ -4,7 +4,8 @@ import cloudinary.uploader
 
 from rest_framework import serializers
 from San_HNT.models import (Product , User, Role,  Permission, Category ,Product,
-                            Supplier, Comment, OrderDetail, Customer, Order, CommentImage, StateOrder, ProductImage)
+                            Supplier, Comment, OrderDetail, Customer, Order, CommentImage,
+                            StateOrder, ProductImage, Deals)
 from django.contrib.auth.models import Group
 
 
@@ -93,10 +94,11 @@ class UserSerializer(serializers.ModelSerializer):
 
         avatar = validated_data.pop('avatar', None)
         print(type(avatar))
-
+        #
         if avatar:
             uploaded_avatar = cloudinary.uploader.upload(avatar)
             avatar = uploaded_avatar.get("secure_url")
+            print(avatar)
 
         user = User(role=role, avatar = avatar,first_name= first_name, last_name = last_name, **validated_data)
         user.set_password(user.password)
@@ -113,6 +115,12 @@ class UserSerializer(serializers.ModelSerializer):
 
 
         return user
+
+    avatar = serializers.SerializerMethodField()
+    def get_avatar(self, obj):
+        if obj.avatar:
+            return obj.avatar.url
+        return None
 
     class Meta:
         model = User
@@ -187,14 +195,24 @@ class BasicCustomerSerializer(serializers.ModelSerializer):
 
 class BaseSupplierSerializer(serializers.ModelSerializer):
     id = serializers.IntegerField(source='Supplier_id')
-    user = serializers.SerializerMethodField()
 
+    avatar = serializers.SerializerMethodField()
     class Meta:
         model = Supplier
-        fields = ['id', 'user', 'TotalRating' , 'CompanyName', 'Description']
+        fields = ['id', 'avatar', 'TotalRating' , 'CompanyName', 'Description','TotalComment']
 
-    def get_user(self, obj):
-        return {
-             "id": obj.Supplier.id,
-             "avatar": obj.Supplier.avatar.url
-        } if obj.Supplier else None
+
+    def get_avatar(self, obj):
+        return obj.Supplier.avatar.url if obj.Supplier and obj.Supplier.avatar else None
+    # def get_user(self, obj):
+    #     return {
+    #          "id": obj.Supplier.id,
+    #          "avatar": obj.Supplier.avatar.url
+    #     } if obj.Supplier else None
+
+
+
+class DealsSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = Deals
+        fields = '__all__'

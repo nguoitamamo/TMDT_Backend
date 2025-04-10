@@ -6,7 +6,7 @@ from rest_framework.response import Response
 from rest_framework import viewsets, permissions, generics, parsers, status
 from San_HNT.models import (Product, User, Permission, Category,
                             Supplier, ProductImage, Comment, OrderDetail,
-                            StateOrder, Customer, Order, CommentImage, StateOrder)
+                            StateOrder, Customer, Order, CommentImage, StateOrder,Deals)
 from rest_framework.decorators import action, permission_classes
 from django.contrib.auth.models import Group
 from rest_framework.utils.mediatypes import order_by_precedence
@@ -15,7 +15,7 @@ from .serializers import (
     ProductSerializer, UserSerializer, PermissionSerializer, CategorySerializer,
     SupplierSerializer, CommentSerializer, OrderDetailSerializer, BaseSupplierSerializer,
     CustomerSerializer, OrderSerializer, BasicCustomerSerializer, CommentImageSerializer,
-    StateOrderSerializer)
+    StateOrderSerializer, DealsSerializer)
 import cloudinary.uploader
 from .perms import OwnerPerms, EmployeePermission
 from .paginators import ProductPaginator, CommentPaginator
@@ -213,7 +213,11 @@ class UserViewSet(viewsets.ModelViewSet):
 
         if user is not None:
 
-            return Response(UserSerializer(user).data, status=status.HTTP_200_OK)
+            data = UserSerializer(user).data
+            if data['role'] == 'Supplier':
+                data.update(BaseSupplierSerializer(user.supplier).data)
+
+            return Response(data, status=status.HTTP_200_OK)
         else:
             return Response({"error": "Thông tin đăng nhập không hợp lệ!"}, status=status.HTTP_400_BAD_REQUEST)
 
@@ -354,7 +358,7 @@ class CustomerViewSet(viewsets.ModelViewSet):
     serializer_class = CustomerSerializer
 
     def get_permissions(self):
-        if self.request.method in ['GET', 'POST'] and self.action in ['get_donhang', 'add_giohang', 'get_giohang', 'add_commnet']:
+        if self.request.method in ['GET', 'POST'] and self.action in ['get_donhang','get_giohang', 'update_giohang','add_giohang', 'add_commnet']:
             return [OwnerPerms()]
 
         return [permissions.AllowAny()]
@@ -385,7 +389,6 @@ class CustomerViewSet(viewsets.ModelViewSet):
 
             price = price.replace(',', '')
 
-            print(price)
             price = float(price) / 1_000_000
 
             product = Product(
@@ -414,7 +417,7 @@ class CustomerViewSet(viewsets.ModelViewSet):
         try:
             customer = self.get_object()
 
-            order_id= self.request.query_params.get('order_id', None)
+            order_id= request.data.get('OrderID', None)
 
             orders = Order.objects.filter(Customer=customer).first()
 
@@ -428,14 +431,31 @@ class CustomerViewSet(viewsets.ModelViewSet):
 
                 orders.delete()
 
-            return Response({"status": True}, status=status.HTTP_200_OK)
+
+            return Response({"order_id": order_id}, status=status.HTTP_200_OK)
 
 
         except Customer.DoesNotExist:
             return Response({"error": "Không tìm thấy khách hàng"}, status=status.HTTP_404_NOT_FOUND)
 
+    @action(methods=['patch'], detail=False, url_path='updategiohang')
+    def update_giohang(self, request):
+        try:
+            order_id= request.data.get('OrderID', None)
+            product_id= request.data.get('ProductID', None)
+            quantity= request.data.get('Quantity',None)
 
+            if order_id and product_id:
 
+                order_detail = OrderDetail.objects.filter(Order_id = order_id , Product_id = product_id).first()
+                if order_detail:
+                    order_detail.Quantity = quantity
+                    order_detail.save()
+
+            return Response(OrderSerializer(Order.objects.get(OrderID = order_id)).data , status = status.HTTP_200_OK)
+
+        except Customer.DoesNotExist:
+            return Response({"error": "loi"}, status = status.HTTP_404_NOT_FOUND)
 
     @action(methods=['get'], detail=True, url_path='suggest')
     def suggest_product(self, request, pk=None):
@@ -749,3 +769,9 @@ class SupplierViewSet(viewsets.ModelViewSet):
 
         return Response(  CategorySerializer(categories, many=True).data,
                         status=status.HTTP_200_OK)
+
+
+class DealsViewSet(viewsets.ModelViewSet):
+    queryset = Deals.objects.all()
+    serializer_class = DealsSerializer
+    # permission_classes = [IsAuthenticatedOrReadOnly]
