@@ -237,10 +237,17 @@ class UserViewSet(viewsets.ModelViewSet):
 
     @action(methods=['get' , 'patch'], url_path='current-user', detail=False, permission_classes=[permissions.IsAuthenticated])
     def get_current_user(self, request):
-        user = request.user
-        serializer = UserSerializer(user)
-        print(serializer.data)
-        return Response(serializer.data, status=status.HTTP_200_OK)
+      
+        user = UserSerializer(request.user).data
+     
+        if user:
+            if user['role'] == 'Supplier':
+                user.update(BaseSupplierSerializer(user.supplier).data)
+
+            return Response(user, status=status.HTTP_200_OK)
+        else:
+            return Response({"error": "Thông tin đăng nhập không hợp lệ!"}, status=status.HTTP_400_BAD_REQUEST)
+
 
     @action(methods=['get'], url_path='permissions', detail=True)
     def get_permissions_user(self, request, pk=None):
